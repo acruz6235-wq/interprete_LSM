@@ -13,6 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.Camera;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
@@ -23,6 +24,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.example.interpretels.R;
 import com.example.interpretels.camera.HandDetector;
+import com.example.interpretels.ml.SignClassifier;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult;
@@ -41,9 +43,13 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
     private PreviewView previewView;
     private TextView tvTranslation;
     private FloatingActionButton fabClose;
+    private FloatingActionButton fabFlashlight;
 
     private HandDetector handDetector;
+    private SignClassifier signClassifier;
     private ExecutorService cameraExecutor;
+    private Camera camera;
+    private boolean isFlashlightOn = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,11 +59,14 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         previewView = findViewById(R.id.previewView);
         tvTranslation = findViewById(R.id.tvTranslation);
         fabClose = findViewById(R.id.fabClose);
+        fabFlashlight = findViewById(R.id.fabFlashlight);
 
         fabClose.setOnClickListener(v -> finish());
+        fabFlashlight.setOnClickListener(v -> toggleFlashlight());
 
-        // Inicializar HandDetector
+        // Inicializar HandDetector y SignClassifier
         handDetector = new HandDetector(this, this);
+        signClassifier = new SignClassifier();
         cameraExecutor = Executors.newSingleThreadExecutor();
 
         // Verificar permiso de cámara
@@ -117,14 +126,13 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         // Image Analysis para MediaPipe
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)  // ← AGREGAR ESTO
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build();
 
-        // Procesar solo cada 10 frames para debugging
         final int[] frameCount = {0};
         imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
             frameCount[0]++;
-            if (frameCount[0] % 10 == 0) {  // Solo cada 10 frames
+            if (frameCount[0] % 10 == 0) {
                 analyzeImage(imageProxy);
             } else {
                 imageProxy.close();
@@ -136,23 +144,24 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
                 .requireLensFacing(CameraSelector.LENS_FACING_BACK)
                 .build();
 
-        // Bind
+        // Bind y GUARDAR la referencia a la cámara
         cameraProvider.unbindAll();
-        cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+        camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
 
         Log.d(TAG, "Cámara configurada correctamente");
     }
 
     private void analyzeImage(ImageProxy imageProxy) {
         try {
-            // Convertir ImageProxy a Bitmap
             Bitmap bitmap = imageProxyToBitmap(imageProxy);
 
             if (bitmap != null) {
-                // Detectar manos
                 handDetector.detectHands(bitmap);
+                bitmap.recycle();
             }
 
+        } catch (Exception e) {
+            Log.e(TAG, "Error analizando imagen", e);
         } finally {
             imageProxy.close();
         }
@@ -160,7 +169,6 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
 
     private Bitmap imageProxyToBitmap(ImageProxy image) {
         try {
-            // Obtener el buffer YUV
             ImageProxy.PlaneProxy[] planes = image.getPlanes();
             ByteBuffer yBuffer = planes[0].getBuffer();
             ByteBuffer uBuffer = planes[1].getBuffer();
@@ -195,17 +203,16 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
             return null;
         }
     }
+
     @Override
     public void onHandsDetected(HandLandmarkerResult result) {
         runOnUiThread(() -> {
             if (result.landmarks().isEmpty()) {
-                tvTranslation.setText("No se detectaron manos");
+                tvTranslation.setText("🖐️ No se detectaron manos");
             } else {
-                int numHands = result.landmarks().size();
-                tvTranslation.setText("Detectadas " + numHands + " mano(s)");
-
-                // Aquí después agregaremos la clasificación de señas
-                Log.d(TAG, "Manos detectadas: " + numHands);
+                String sign = signClassifier.classify(result.landmarks().get(0));
+                tvTranslation.setText("✅ Seña detectada: " + sign);
+                Log.d(TAG, "Seña clasificada: " + sign);
             }
         });
     }
@@ -213,14 +220,50 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
     @Override
     public void onError(String error) {
         runOnUiThread(() -> {
-            tvTranslation.setText("Error: " + error);
+            tvTranslation.setText("⚠️ Error: " + error);
             Log.e(TAG, error);
         });
+    }
+
+    private void toggleFlashlight() {
+        if (camera == null) {
+            Toast.makeText(this, "Cámara no disponible", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (!camera.getCameraInfo().hasFlashUnit()) {
+            Toast.makeText(this, "Este dispositivo no tiene flash", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        isFlashlightOn = !isFlashlightOn;
+        camera.getCameraControl().enableTorch(isFlashlightOn);
+
+        if (isFlashlightOn) {
+            fabFlashlight.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                            getResources().getColor(android.R.color.holo_orange_light)
+                    )
+            );
+            Toast.makeText(this, "🔦 Linterna encendida", Toast.LENGTH_SHORT).show();
+        } else {
+            fabFlashlight.setBackgroundTintList(
+                    android.content.res.ColorStateList.valueOf(
+                            getResources().getColor(R.color.accent)
+                    )
+            );
+            Toast.makeText(this, "Linterna apagada", Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        if (camera != null && isFlashlightOn) {
+            camera.getCameraControl().enableTorch(false);
+        }
+
         if (handDetector != null) {
             handDetector.close();
         }
