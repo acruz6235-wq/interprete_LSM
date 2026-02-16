@@ -167,41 +167,48 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         }
     }
 
+    // ✅ MÉTODO REFACTORIZADO - Dividido en 3 métodos más pequeños
     private Bitmap imageProxyToBitmap(ImageProxy image) {
         try {
-            ImageProxy.PlaneProxy[] planes = image.getPlanes();
-            ByteBuffer yBuffer = planes[0].getBuffer();
-            ByteBuffer uBuffer = planes[1].getBuffer();
-            ByteBuffer vBuffer = planes[2].getBuffer();
-
-            int ySize = yBuffer.remaining();
-            int uSize = uBuffer.remaining();
-            int vSize = vBuffer.remaining();
-
-            byte[] nv21 = new byte[ySize + uSize + vSize];
-
-            yBuffer.get(nv21, 0, ySize);
-            vBuffer.get(nv21, ySize, vSize);
-            uBuffer.get(nv21, ySize + vSize, uSize);
-
-            YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21,
-                    image.getWidth(), image.getHeight(), null);
-
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            yuvImage.compressToJpeg(new Rect(0, 0, image.getWidth(), image.getHeight()),
-                    100, out);
-
-            byte[] imageBytes = out.toByteArray();
-            Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-
-            Log.d(TAG, "Bitmap creado: " + (bitmap != null ? bitmap.getWidth() + "x" + bitmap.getHeight() : "null"));
-
-            return bitmap;
-
+            byte[] nv21 = convertImageProxyToNV21(image);
+            return convertNV21ToBitmap(nv21, image.getWidth(), image.getHeight());
         } catch (Exception e) {
             Log.e(TAG, "Error convirtiendo ImageProxy a Bitmap", e);
             return null;
         }
+    }
+
+    private byte[] convertImageProxyToNV21(ImageProxy image) {
+        ImageProxy.PlaneProxy[] planes = image.getPlanes();
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        int ySize = yBuffer.remaining();
+        int uSize = uBuffer.remaining();
+        int vSize = vBuffer.remaining();
+
+        byte[] nv21 = new byte[ySize + uSize + vSize];
+
+        yBuffer.get(nv21, 0, ySize);
+        vBuffer.get(nv21, ySize, vSize);
+        uBuffer.get(nv21, ySize + vSize, uSize);
+
+        return nv21;
+    }
+
+    private Bitmap convertNV21ToBitmap(byte[] nv21, int width, int height) {
+        YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        yuvImage.compressToJpeg(new Rect(0, 0, width, height), 100, out);
+
+        byte[] imageBytes = out.toByteArray();
+        Bitmap bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+
+        Log.d(TAG, "Bitmap creado: " + (bitmap != null ? bitmap.getWidth() + "x" + bitmap.getHeight() : "null"));
+
+        return bitmap;
     }
 
     @Override
@@ -225,6 +232,7 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         });
     }
 
+    // ✅ MÉTODO CORREGIDO - Usa ContextCompat.getColor() en lugar de getResources().getColor()
     private void toggleFlashlight() {
         if (camera == null) {
             Toast.makeText(this, "Cámara no disponible", Toast.LENGTH_SHORT).show();
@@ -242,17 +250,15 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         if (isFlashlightOn) {
             fabFlashlight.setBackgroundTintList(
                     android.content.res.ColorStateList.valueOf(
-                            getResources().getColor(android.R.color.holo_orange_light)
+                            ContextCompat.getColor(this, android.R.color.holo_orange_light)
                     )
             );
-            Toast.makeText(this, "🔦 Linterna encendida", Toast.LENGTH_SHORT).show();
         } else {
             fabFlashlight.setBackgroundTintList(
                     android.content.res.ColorStateList.valueOf(
-                            getResources().getColor(R.color.accent)
+                            ContextCompat.getColor(this, R.color.accent)
                     )
             );
-            Toast.makeText(this, "Linterna apagada", Toast.LENGTH_SHORT).show();
         }
     }
 
