@@ -15,9 +15,36 @@
         android:textColor="@color/text_primary"
         android:layout_marginBottom="16dp"/>
 
+    <!-- Mensaje cuando está vacío -->
+    <TextView
+        android:id="@+id/tvEmpty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="No hay señas en el historial.\n\n¡Empieza a traducir!"
+        android:textSize="16sp"
+        android:textColor="@color/text_secondary"
+        android:gravity="center"
+        android:layout_gravity="center"
+        android:layout_marginTop="100dp"
+        android:visibility="gone"/>
+
+    <!-- Lista de historial -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewHistorial"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+    <!-- Botón para limpiar historial -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnClearHistory"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🗑️ Limpiar Historial"
+        android:textColor="@android:color/white"
+        app:backgroundTint="#D32F2F"
+        android:layout_marginTop="16dp"
+        android:visibility="gone"
+        xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
 </LinearLayout>

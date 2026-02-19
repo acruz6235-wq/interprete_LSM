@@ -24,7 +24,9 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.example.interpretels.R;
 import com.example.interpretels.camera.HandDetector;
+import com.example.interpretels.database.AppDatabase;
 import com.example.interpretels.ml.SignClassifier;
+import com.example.interpretels.models.SignHistory;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult;
@@ -39,6 +41,12 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
 
     private static final String TAG = "CameraActivity";
     private static final int CAMERA_PERMISSION_CODE = 100;
+
+    // Variables para el historial
+    private String currentSessionId;
+    private String lastDetectedSign = "";
+    private long lastDetectionTime = 0;
+    private int currentSignCount = 1;
 
     private PreviewView previewView;
     private TextView tvTranslation;
@@ -60,6 +68,9 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         tvTranslation = findViewById(R.id.tvTranslation);
         fabClose = findViewById(R.id.fabClose);
         fabFlashlight = findViewById(R.id.fabFlashlight);
+
+        // Generar ID único para esta sesión
+        currentSessionId = String.valueOf(System.currentTimeMillis());
 
         fabClose.setOnClickListener(v -> finish());
         fabFlashlight.setOnClickListener(v -> toggleFlashlight());
@@ -167,7 +178,6 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
         }
     }
 
-    // ✅ MÉTODO REFACTORIZADO - Dividido en 3 métodos más pequeños
     private Bitmap imageProxyToBitmap(ImageProxy image) {
         try {
             byte[] nv21 = convertImageProxyToNV21(image);
@@ -215,11 +225,40 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
     public void onHandsDetected(HandLandmarkerResult result) {
         runOnUiThread(() -> {
             if (result.landmarks().isEmpty()) {
-                tvTranslation.setText("🖐️ No se detectaron manos");
+                tvTranslation.setText(" No se detectaron manos");
             } else {
                 String sign = signClassifier.classify(result.landmarks().get(0));
-                tvTranslation.setText("✅ Seña detectada: " + sign);
-                Log.d(TAG, "Seña clasificada: " + sign);
+
+                // Ignorar señas no reconocidas
+                if (!sign.equals("Seña no reconocida") && !sign.equals("Mano no detectada")) {
+
+                    // Cooldown de 1 segundo entre detecciones
+                    long currentTime = System.currentTimeMillis();
+                    if (currentTime - lastDetectionTime < 1000) {
+                        return;
+                    }
+
+                    // Si es la misma seña, incrementar contador
+                    if (sign.equals(lastDetectedSign)) {
+                        currentSignCount++;
+                        tvTranslation.setText(" " + sign + " x" + currentSignCount);
+                    } else {
+                        // Guardar la seña anterior si existía
+                        if (!lastDetectedSign.isEmpty()) {
+                            saveToHistory(lastDetectedSign, currentSignCount);
+                        }
+
+                        // Nueva seña
+                        lastDetectedSign = sign;
+                        currentSignCount = 1;
+                        tvTranslation.setText("✅ " + sign);
+                    }
+
+                    lastDetectionTime = currentTime;
+                    Log.d(TAG, "Seña: " + sign + " (x" + currentSignCount + ")");
+                } else {
+                    tvTranslation.setText(sign);
+                }
             }
         });
     }
@@ -227,12 +266,25 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
     @Override
     public void onError(String error) {
         runOnUiThread(() -> {
-            tvTranslation.setText("⚠️ Error: " + error);
+            tvTranslation.setText("⚠ Error: " + error);
             Log.e(TAG, error);
         });
     }
 
-    // ✅ MÉTODO CORREGIDO - Usa ContextCompat.getColor() en lugar de getResources().getColor()
+    private void saveToHistory(String signName, int count) {
+        new Thread(() -> {
+            AppDatabase db = AppDatabase.getInstance(this);
+            SignHistory history = new SignHistory(
+                    signName,
+                    count,
+                    System.currentTimeMillis(),
+                    currentSessionId
+            );
+            db.signHistoryDao().insert(history);
+            Log.d(TAG, "Guardado en historial: " + signName + " x" + count);
+        }).start();
+    }
+
     private void toggleFlashlight() {
         if (camera == null) {
             Toast.makeText(this, "Cámara no disponible", Toast.LENGTH_SHORT).show();
@@ -253,18 +305,25 @@ public class CameraActivity extends AppCompatActivity implements HandDetector.Ha
                             ContextCompat.getColor(this, android.R.color.holo_orange_light)
                     )
             );
+            Toast.makeText(this, "🔦 Linterna encendida", Toast.LENGTH_SHORT).show();
         } else {
             fabFlashlight.setBackgroundTintList(
                     android.content.res.ColorStateList.valueOf(
                             ContextCompat.getColor(this, R.color.accent)
                     )
             );
+            Toast.makeText(this, "Linterna apagada", Toast.LENGTH_SHORT).show();
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        // Guardar la última seña detectada
+        if (!lastDetectedSign.isEmpty()) {
+            saveToHistory(lastDetectedSign, currentSignCount);
+        }
 
         if (camera != null && isFlashlightOn) {
             camera.getCameraControl().enableTorch(false);
