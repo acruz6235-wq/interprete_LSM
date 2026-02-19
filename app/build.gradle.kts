@@ -29,8 +29,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    aaptOptions {
-        noCompress ("tflite", "task")
+    androidResources {
+        noCompress += listOf("tflite", "task")
     }
 }
 
